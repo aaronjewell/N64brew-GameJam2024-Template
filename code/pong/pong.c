@@ -2,6 +2,8 @@
 
 #include "../../core.h"
 #include "../../minigame.h"
+#include <t3d/t3d.h>
+#include <t3d/t3dmath.h>
 
 #define FONT_TEXT 1
 
@@ -10,9 +12,18 @@
 #define WIN_DELAY 5.0f
 #define WIN_SHOW_DELAY 2.0f
 
+#define SCREEN_WIDTH 320
+#define SCREEN_HEIGHT 240
+#define HALF_SCREEN_WIDTH 160
+#define HALF_SCREEN_HEIGHT 120
 #define SCREEN_MARGIN 16
+#define PADDLE_WIDTH 16
+#define HALF_PADDLE_WIDTH 8
+#define PADDLE_HEIGHT 4
+#define HALF_PADDLE_HEIGHT 2
 
 #define GAME_BACKGROUND 0x000000FF
+#define PADDLE_COLOR 0xFFFFFFFF
 
 const MinigameDef minigame_def = {.gamename = "Pong",
                                   .developername = "Aaron",
@@ -20,13 +31,21 @@ const MinigameDef minigame_def = {.gamename = "Pong",
                                   .instructions =
                                       "Move your paddle with the joystick."};
 
+int player_screen_coords[MAXPLAYERS][2] = {
+    {HALF_SCREEN_WIDTH - HALF_PADDLE_WIDTH, SCREEN_MARGIN},
+    {SCREEN_WIDTH - SCREEN_MARGIN - PADDLE_HEIGHT,
+      HALF_SCREEN_HEIGHT - HALF_PADDLE_WIDTH},
+    {HALF_SCREEN_WIDTH - HALF_PADDLE_WIDTH,
+      SCREEN_HEIGHT - SCREEN_MARGIN - PADDLE_HEIGHT},
+    {SCREEN_MARGIN, HALF_SCREEN_HEIGHT - HALF_PADDLE_WIDTH}};
+
 rdpq_font_t *font;
 
 float countdown_timer;
 float end_timer;
 bool is_ending;
 
-bool has_player_won(PlyNum player) { return true; }
+bool has_player_won(PlyNum player) { return false; }
 
 bool is_countdown() { return countdown_timer > 0; }
 
@@ -74,7 +93,39 @@ void minigame_fixedloop(float deltatime) {
     // Do game started stuff like sound
   }
 
+  T3DVec3 newDir = {0};
+
   for (size_t i = 0; i < MAXPLAYERS; i++) {
+    if (can_control()) {
+      if (i < core_get_playercount()) {
+        // For human players, check if physical buttons are pressed
+        joypad_inputs_t joypad =
+            joypad_get_inputs(core_get_playercontroller(i));
+
+        newDir.v[0] = (float)joypad.stick_x * 0.05f;
+        newDir.v[2] = -(float)joypad.stick_y * 0.05f;
+      } else {
+        newDir.v[0] = 0.0f;
+        newDir.v[2] = 0.0f;
+        // AI movement
+      }
+
+      // restrict axix movement
+      bool is_horizontal = i % 2 == 0;
+
+      if (is_horizontal) {
+        player_screen_coords[i][0] += newDir.v[0]; 
+      } else {
+        player_screen_coords[i][1] += newDir.v[2];
+      }
+
+      // clamp to screen bounds
+      if (player_screen_coords[i][0] < SCREEN_MARGIN) player_screen_coords[i][0] = SCREEN_MARGIN;
+      if (player_screen_coords[i][0] > SCREEN_WIDTH - SCREEN_MARGIN) player_screen_coords[i][0] = SCREEN_WIDTH - SCREEN_MARGIN;
+      if (player_screen_coords[i][1] < SCREEN_MARGIN) player_screen_coords[i][1] = SCREEN_MARGIN;
+      if (player_screen_coords[i][1] > SCREEN_HEIGHT - SCREEN_MARGIN) player_screen_coords[i][1] = SCREEN_HEIGHT - SCREEN_MARGIN;
+    }
+
     // Do player stuff including AI
   }
 
@@ -88,34 +139,29 @@ void minigame_fixedloop(float deltatime) {
 }
 
 void minigame_loop(float deltatime) {
-  if (can_control()) {
-    for (size_t i = 0; i < core_get_playercount(); i++) {
-      // For human players, check if physical buttons are pressed
-      joypad_buttons_t btn =
-          joypad_get_buttons_pressed(core_get_playercontroller(i));
-
-      // handle keypresses
-    }
-  }
 
   // Render the UI
   rdpq_attach(display_get(), NULL);
   rdpq_clear(color_from_packed32(GAME_BACKGROUND));
 
-  const int player_screen_coords[MAXPLAYERS][2] = {
-      {SCREEN_MARGIN + 320 / 2 - 32, SCREEN_MARGIN},
-      {320 - SCREEN_MARGIN - 32, 240 / 2 + SCREEN_MARGIN - 8},
-      {SCREEN_MARGIN + 320 / 2 - 32, 240 - SCREEN_MARGIN - 8},
-      {SCREEN_MARGIN, 240 / 2 + SCREEN_MARGIN - 8}};
-
   for (size_t i = 0; i < MAXPLAYERS; i++) {
     int xcur = player_screen_coords[i][0];
     int ycur = player_screen_coords[i][1];
 
-    // Draw player names
+    bool horizontal = i % 2 == 0;
+
     rdpq_set_mode_standard();
-    rdpq_text_printf(NULL, FONT_BUILTIN_DEBUG_MONO, xcur, ycur, "Player %d",
-                     i + 1);
+
+    // Draw paddles
+    rdpq_mode_combiner(RDPQ_COMBINER_FLAT);
+    rdpq_set_prim_color(color_from_packed32(PADDLE_COLOR));
+
+    if (horizontal)
+      rdpq_fill_rectangle(xcur, ycur, xcur + PADDLE_WIDTH,
+                          ycur + PADDLE_HEIGHT);
+    else
+      rdpq_fill_rectangle(xcur, ycur, xcur + PADDLE_HEIGHT,
+                          ycur + PADDLE_WIDTH);
   }
 
   rdpq_set_mode_standard();
